@@ -1,0 +1,16 @@
+{
+  "name": "Trashify — Smart Municipal Waste Collection",
+  "short_name": "Trashify",
+  "description": "On-demand waste collection powered by Nigeria's Digital Postcode & ResolveGrid location intelligence.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF8F3",
+  "theme_color": "#173E2C",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

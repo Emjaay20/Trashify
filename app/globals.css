@@ -1,26 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #FAF8F3;
+  --surface: #FFFFFF;
+  --surface-2: #F3F0E8;
+  --surface-3: #EDE9DD;
+  --ink: #1A1E1B;
+  --ink-2: #2E3530;
+  --muted: #6E7A70;
+  --muted-2: #8A948C;
+  --line: #E3DED0;
+  --line-2: #D6D0BE;
+  --forest: #173E2C;
+  --forest-2: #1E4D36;
+  --forest-ink: #EAF0E9;
+  --brass: #9A7E4A;
+  --brass-soft: #F2EAD3;
+  --sage: #E9EFE6;
+  --amber-bg: #FEF6E0;
+  --amber-tx: #7A5A12;
+  --red-bg: #FDECEC;
+  --red-tx: #7A1F1F;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0F1310;
+    --surface: #171C18;
+    --surface-2: #1E2420;
+    --surface-3: #262E28;
+    --ink: #EDEDE6;
+    --ink-2: #D8DCD4;
+    --muted: #9AA79E;
+    --muted-2: #7C8A80;
+    --line: #2A332B;
+    --line-2: #364038;
+    --forest: #D9E8D8;
+    --forest-2: #E6F0E5;
+    --sage: #1E2E24;
+    --brass-soft: #2E2A1E;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'Public Sans', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-serif {
+  font-family: 'Newsreader', Georgia, serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
 }
