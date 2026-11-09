@@ -1,30 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyFieldEvidence } from '@/lib/resolvegrid';
+import { verifyJobEvidence } from '@/lib/db';
+import { FieldEvidencePayload } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { jobId, expectedPostcode, submittedCode, correctCode, gpsCoords } = body;
+    const payload = (await request.json()) as FieldEvidencePayload;
 
-    if (!jobId || !submittedCode) {
-      return NextResponse.json({ error: 'jobId and submittedCode are required' }, { status: 400 });
+    if (!payload.jobId || !payload.customerConfirmationCode) {
+      return NextResponse.json(
+        { error: 'jobId and customerConfirmationCode are required' },
+        { status: 400 }
+      );
     }
 
-    const verificationResult = verifyFieldEvidence({
-      jobId,
-      expectedPostcode: expectedPostcode || '900211',
-      submittedCode,
-      correctCode: correctCode || '4821',
-      gpsCoords,
-    });
+    const verificationResult = verifyJobEvidence(payload);
 
-    if (!verificationResult.verified) {
-      return NextResponse.json(verificationResult, { status: 422 });
+    if (!verificationResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          verified: false,
+          message: verificationResult.message,
+        },
+        { status: 422 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      ...verificationResult,
+      verified: true,
+      message: verificationResult.message,
+      job: verificationResult.job,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Evidence verification failed';

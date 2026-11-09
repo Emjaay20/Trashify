@@ -1,0 +1,16 @@
+{
+  "appId": "ng.trashify.app",
+  "appName": "Trashify",
+  "webDir": "out",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Geolocation": {
+      "permissions": ["location"]
+    },
+    "Camera": {
+      "permissions": ["camera", "photos"]
+    }
+  }
+}
