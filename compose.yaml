@@ -1,0 +1,23 @@
+# One Trashify instance with its database on a named volume.
+# Put the values in a .env file next to this file (it is git-ignored), then:
+#   docker compose up -d --build
+services:
+  trashify:
+    build: .
+    restart: unless-stopped
+    # Published on localhost only. Put an HTTPS reverse proxy in front of it.
+    ports:
+      - "127.0.0.1:${TRASHIFY_PORT:-3000}:3000"
+    environment:
+      TRASHIFY_ORIGIN: ${TRASHIFY_ORIGIN:?Set TRASHIFY_ORIGIN to the public https origin, with no trailing slash}
+      RESOLVEGRID_API_URL: ${RESOLVEGRID_API_URL:-}
+      RESOLVEGRID_SERVICE_TOKEN: ${RESOLVEGRID_SERVICE_TOKEN:-}
+      RESOLVEGRID_NIPOST_API_KEY: ${RESOLVEGRID_NIPOST_API_KEY:-}
+      TRASHIFY_ALLOW_SAMPLE_ADDRESSES: ${TRASHIFY_ALLOW_SAMPLE_ADDRESSES:-}
+      TRASHIFY_CLIENT_IP_HEADER: ${TRASHIFY_CLIENT_IP_HEADER:-}
+    volumes:
+      - trashify-data:/data
+    stop_grace_period: 30s
+
+volumes:
+  trashify-data:

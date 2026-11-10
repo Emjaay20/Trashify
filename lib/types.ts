@@ -11,15 +11,17 @@ export type JobStatus =
 
 export interface ResolveGridAddressResult {
   rawInput: string;
-  postcode: string;         // e.g. "900211" (Wuse 2)
+  postcode: string;         // Dispatch district, e.g. "FC-02-A09"
+  digitalPostcode?: string;  // Building-level alphanumeric code from ResolveGrid
   standardizedAddress: string;
   area: string;
   lga: string;
   state: string;
   landmarkMatch?: string;
   confidence: number;       // 0.0 - 1.0 (e.g. 0.87)
-  source: 'NIPOST_OFFICIAL_API' | 'RESOLVEGRID_FIXTURE' | 'LANDMARK_INDEX';
+  source: 'NIPOST_OFFICIAL_API' | 'NIPOST_SANDBOX' | 'RESOLVEGRID_FIXTURE' | 'LANDMARK_INDEX';
   needsConfirmation: boolean;
+  coordinateOrigin?: 'NIPOST_GEOMETRY' | 'RESIDENT_DEVICE_REVERSE_MATCH';
   coordinates?: {
     lat: number;
     lng: number;
@@ -27,33 +29,14 @@ export interface ResolveGridAddressResult {
   };
 }
 
-export interface DispatchEstimate {
-  jobId?: string;
-  distanceKm: number;
-  etaMinutes: number;
-  factors: {
-    baseDriveTime?: number;
-    trafficMultiplier?: number;
-    trafficFactor?: number;
-    pendingStops?: number;
-    stopsBefore?: number;
-    distance?: number;
-  };
-}
-
 export interface FieldEvidencePayload {
   jobId: string;
-  collectorId: string;
-  postcode: string;
   customerConfirmationCode: string; // 4-digit PIN
   gpsLocation?: {
     lat: number;
     lng: number;
     accuracyMeters?: number;
-    isWithinPostcodeBoundary?: boolean;
   };
-  wastePhotoUrl?: string;
-  verifiedAt?: string;
 }
 
 export interface CollectorProfile {
@@ -100,25 +83,15 @@ export interface PickupJob {
     verifiedPickups: number;
     avatarInitials: string;
   };
-  dispatchEstimate?: DispatchEstimate;
   verification?: {
     gpsVerified: boolean;
     timestamp: string;
-    confirmationCode: string;
+    confirmationCode?: string;
     photoUrl?: string;
     actualBags: number;
   };
   createdAt: string;
+  dueAt?: string;
+  startedAt?: string;
   receiptIssued: boolean;
-}
-
-export interface MunicipalZoneStats {
-  postcode: string;
-  area: string;
-  lga: string;
-  activeCollectors: number;
-  pickupsToday: number;
-  tonsCollected: number;
-  avgConfidence: number;
-  slaCompliancePercent: number;
 }

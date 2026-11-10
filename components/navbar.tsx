@@ -1,86 +1,75 @@
 'use client';
 
-import * as React from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import clsx from 'clsx';
-import { Trash2, Smartphone, Shield, Truck, UserCheck, Layers } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Trash2 } from 'lucide-react';
+import { workspaces, type Role } from '@/lib/roles';
 
-export function Navbar() {
+type Viewer = { role: Role; active: boolean; demo: boolean };
+
+export function Navbar({ viewer }: { viewer: Viewer | null }) {
   const pathname = usePathname();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const workspace = viewer && workspaces[viewer.role];
+  const destination = viewer?.active ? workspace?.path : '/pending';
 
-  const navLinks = [
-    { href: '/', label: 'Overview', icon: Layers },
-    { href: '/book', label: 'Book Pickup', icon: UserCheck },
-    { href: '/collector/jobs', label: 'Collector Driver', icon: Truck },
-    { href: '/dashboard', label: 'Municipal Ops', icon: Shield },
-  ];
+  async function logout() {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' }),
+      });
+      if (!response.ok) throw new Error('Sign-out failed.');
+      // Start a new document after revoking the authenticated session.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign('/');
+    } catch {
+      setError('Couldn’t sign out. Try again.');
+      setBusy(false);
+    }
+  }
 
   return (
-    <header className="sticky top-0 z-40 bg-[var(--surface)]/95 backdrop-blur-md border-b border-[var(--line)]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        {/* Brand */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-[#173E2C] text-[#FAF8F3] flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
-            <Trash2 className="w-5 h-5 text-[#FAF8F3]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-serif text-xl font-bold tracking-tight text-[var(--ink)]">
-                Trashify
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium bg-[#E9EFE6] text-[#173E2C] border border-[#D6D0BE]">
-                NG
-              </span>
-            </div>
-            <p className="text-[10px] font-mono text-[var(--muted)] -mt-0.5 hidden sm:block">
-              NIPOST Postcode × ResolveGrid Engine
-            </p>
-          </div>
+    <header className="border-b border-[var(--line)] bg-[var(--surface)]">
+      <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2 sm:px-8">
+        <Link href="/" className="flex items-center gap-2.5 text-xl font-bold tracking-tight">
+          <span className="grid size-8 place-items-center rounded-sm bg-[var(--action)] text-white">
+            <Trash2 size={17} aria-hidden />
+          </span>
+          Trashify
         </Link>
-
-        {/* Desktop Nav Links */}
-        <nav className="hidden md:flex items-center gap-1 bg-[var(--surface-2)] p-1 rounded-xl border border-[var(--line)]">
-          {navLinks.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={clsx(
-                  'flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors font-mono',
-                  isActive
-                    ? 'bg-[#173E2C] text-[#FAF8F3] shadow-xs'
-                    : 'text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--surface-3)]'
-                )}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
+        <nav aria-label="Account" className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm font-semibold">
+          {viewer && workspace && destination ? (
+            <>
+              <Link href={destination} aria-current={pathname === destination ? 'page' : undefined} className="hover:underline">
+                {viewer.active ? workspace.label + ' workspace' : 'Account status'}
               </Link>
-            );
-          })}
+              <button type="button" onClick={logout} disabled={busy} className="py-2 text-[var(--accent)] hover:underline disabled:opacity-60">
+                {busy ? 'Signing out…' : viewer.demo ? 'Exit demo' : 'Sign out'}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/demo" className="py-2 text-[var(--accent)] hover:underline">Try demo</Link>
+              <Link href="/login" className="py-2 hover:underline">Sign in</Link>
+              <Link href="/register" className="rounded-md border border-[var(--line-2)] px-3 py-2 hover:bg-[var(--surface-2)]">Sign up</Link>
+            </>
+          )}
         </nav>
-
-        {/* Right actions: Live Postcode Zone pill & Mobile App Install */}
-        <div className="flex items-center gap-2">
-          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--surface-2)] border border-[var(--line)] text-xs font-mono">
-            <span className="w-2 h-2 rounded-full bg-[#173E2C] animate-pulse" />
-            <span className="text-[var(--ink-2)]">Abuja Central Zone</span>
-            <span className="text-[var(--muted)]">#900211</span>
-          </div>
-
-          <Link
-            href="/#mobile-app"
-            className="flex items-center gap-1.5 text-xs font-mono font-medium px-3 py-1.5 rounded-lg border border-[#9A7E4A]/30 bg-[#FEF6E0] text-[#7A5A12] hover:bg-[#F2EAD3] transition-colors"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Mobile App / PWA</span>
-            <span className="sm:hidden">App</span>
-          </Link>
-        </div>
+        {error && <p role="alert" className="w-full text-right text-sm text-[var(--red-tx)]">{error}</p>}
       </div>
+      {viewer?.demo && (
+        <div className="border-t border-[var(--line)] bg-[var(--accent-soft)] px-5 py-2 text-sm">
+          <div className="mx-auto flex max-w-7xl flex-wrap justify-between gap-x-4 gap-y-1 sm:px-3">
+            <span><strong>Demo mode</strong> · Sample data</span>
+            <Link href="/demo" className="font-semibold text-[var(--accent)] underline underline-offset-4">Switch demo workspace</Link>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

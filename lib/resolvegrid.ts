@@ -1,13 +1,31 @@
-import { ResolveGridAddressResult, DispatchEstimate, FieldEvidencePayload } from './types';
+import { ResolveGridAddressResult } from './types';
+import type { PickupPosition } from './pickup-policy';
 
-const RESOLVEGRID_BASE_URL = process.env.NEXT_PUBLIC_RESOLVEGRID_URL || 'https://resolvegrid.aetherhost.com.ng';
+const RESOLVEGRID_API_URL = process.env.RESOLVEGRID_API_URL || 'https://resolvegrid.aetherhost.com.ng/api/v1/resolve';
 
-// In-memory query cache to reduce repeated lookups and improve mobile latency
-const queryCache = new Map<string, { result: ResolveGridAddressResult; timestamp: number }>();
-const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+interface ResolveGridMatch {
+  postcode?: string;
+  source?: string;
+  administrative_address?: { locality_name?: string; lga_name?: string; state_name?: string };
+  recent_house_address?: { recent?: string; landmark_notes?: string };
+  coordinates?: { latitude?: number; longitude?: number };
+}
+
+interface ResolveGridResponse {
+  resolved?: boolean;
+  confidence?: number;
+  primary_match?: ResolveGridMatch;
+}
+
+interface LookupResponse {
+  data?: ResolveGridMatch;
+  upstream_geometry_verified?: boolean;
+  upstream_postcode_verified?: boolean;
+  coordinate_origin?: ResolveGridAddressResult['coordinateOrigin'];
+}
 
 /**
- * Official Abuja NIPOST reference fixtures covering key pilot municipal zones.
+ * Local Abuja demonstration fixtures covering key pilot municipal zones.
  * Tier Levels:
  * Tier 1: State / Region Centroid
  * Tier 2: LGA Centroid
@@ -15,7 +33,7 @@ const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
  * Tier 4: Postcode Polygon / Landmark Centroid
  * Tier 5: Official NIPOST Point Geometry (Exact premise coordinates)
  */
-export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressResult>> = {
+const NIPOST_PILOT_FIXTURES: Record<string, Omit<ResolveGridAddressResult, 'rawInput'>> = {
   '900211': {
     postcode: '900211',
     area: 'Wuse 2',
@@ -24,8 +42,8 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     standardizedAddress: '14 Adetokunbo Ademola Crescent, Wuse 2, AMAC, Abuja FCT',
     landmarkMatch: 'Banex Plaza Area (320m)',
     confidence: 0.89,
-    source: 'NIPOST_OFFICIAL_API',
-    needsConfirmation: false,
+    source: 'RESOLVEGRID_FIXTURE',
+    needsConfirmation: true,
     coordinates: { lat: 9.0765, lng: 7.4812, tierLevel: 4 },
   },
   '900271': {
@@ -36,8 +54,8 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     standardizedAddress: 'Aguiyi Ironsi Way, Maitama, AMAC, Abuja FCT',
     landmarkMatch: 'Farmers Market / Transcorp Hilton',
     confidence: 0.94,
-    source: 'NIPOST_OFFICIAL_API',
-    needsConfirmation: false,
+    source: 'RESOLVEGRID_FIXTURE',
+    needsConfirmation: true,
     coordinates: { lat: 9.0833, lng: 7.4951, tierLevel: 4 },
   },
   '900001': {
@@ -48,8 +66,8 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     standardizedAddress: 'Area 11, Shehu Shagari Way, Garki 1, AMAC, Abuja FCT',
     landmarkMatch: 'Federal Secretariat Complex',
     confidence: 0.96,
-    source: 'NIPOST_OFFICIAL_API',
-    needsConfirmation: false,
+    source: 'RESOLVEGRID_FIXTURE',
+    needsConfirmation: true,
     coordinates: { lat: 9.0543, lng: 7.4902, tierLevel: 5 },
   },
   '900231': {
@@ -61,7 +79,7 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     landmarkMatch: 'Near ECOWAS Secretariat',
     confidence: 0.82,
     source: 'RESOLVEGRID_FIXTURE',
-    needsConfirmation: false,
+    needsConfirmation: true,
     coordinates: { lat: 9.0489, lng: 7.5218, tierLevel: 4 },
   },
   '900108': {
@@ -72,8 +90,8 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     standardizedAddress: 'Alex Ekwueme Way, Jabi Lake District, AMAC, Abuja FCT',
     landmarkMatch: 'Jabi Lake Mall (450m)',
     confidence: 0.91,
-    source: 'NIPOST_OFFICIAL_API',
-    needsConfirmation: false,
+    source: 'RESOLVEGRID_FIXTURE',
+    needsConfirmation: true,
     coordinates: { lat: 9.0682, lng: 7.4241, tierLevel: 4 },
   },
   '900104': {
@@ -85,181 +103,83 @@ export const NIPOST_PILOT_FIXTURES: Record<string, Partial<ResolveGridAddressRes
     landmarkMatch: 'Setraco Gate / 3rd Avenue Commercial Hub',
     confidence: 0.88,
     source: 'RESOLVEGRID_FIXTURE',
-    needsConfirmation: false,
+    needsConfirmation: true,
     coordinates: { lat: 9.1084, lng: 7.4116, tierLevel: 4 },
   },
 };
 
-/**
- * Resolves an informal landmark or address description into an official NIPOST Postcode Record.
- * Consumes the ResolveGrid API with automatic fallback to high-fidelity pilot fixtures.
- */
-export async function resolveAddressWithResolveGrid(query: string): Promise<ResolveGridAddressResult> {
-  const normalized = query.toLowerCase().trim();
+const demoZones = [
+  ['900211', /\b(banex|wuse|900211)\b/],
+  ['900271', /\b(maitama|farmers market|transcorp|900271)\b/],
+  ['900001', /\b(garki|secretariat|area 11|900001)\b/],
+  ['900231', /\b(asokoro|ecowas|900231)\b/],
+  ['900108', /\b(jabi|lake mall|900108)\b/],
+  ['900104', /\b(gwarinpa|3rd avenue|setraco|900104)\b/],
+] as const;
 
-  // Check cache
-  const cached = queryCache.get(normalized);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.result;
-  }
+export async function resolveAddressWithResolveGrid(query: string, position?: PickupPosition): Promise<ResolveGridAddressResult | null> {
+  const normalized = query.trim().toLowerCase();
+  const compact = normalized.replace(/[ -]/g, '').toUpperCase();
+  const isExactCode = /^[A-Z]{2}\d{2}[A-Z]\d{2}[A-Z]{2}\d{2}$/.test(compact);
+  const allowSamples = process.env.TRASHIFY_ALLOW_SAMPLE_ADDRESSES === '1';
 
-  // Attempt live ResolveGrid API call with 2.5s timeout
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const apiKey = process.env.RESOLVEGRID_NIPOST_API_KEY;
+    const headers = { 'Content-Type': 'application/json', ...(apiKey ? { 'X-Nipost-Key': apiKey } : {}) };
+    const options = { headers, cache: 'no-store', redirect: 'error' } as const;
+    let suggestion: ResolveGridResponse | undefined;
+    if (!isExactCode) {
+      const response = await fetch(RESOLVEGRID_API_URL, {
+        ...options, method: 'POST', body: JSON.stringify({ query }), signal: AbortSignal.timeout(9000),
+      });
+      if (response.ok) suggestion = await response.json() as ResolveGridResponse;
+    }
 
-    const res = await fetch(`${RESOLVEGRID_BASE_URL}/api/resolve?q=${encodeURIComponent(query)}`, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Client': 'Trashify-Next16'
-      },
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.postcode) {
-        const result: ResolveGridAddressResult = {
-          rawInput: query,
-          postcode: data.postcode,
-          standardizedAddress: data.standardizedAddress || data.formattedAddress || query,
-          area: data.area || 'Wuse 2',
-          lga: data.lga || 'AMAC',
-          state: data.state || 'FCT — Abuja',
-          landmarkMatch: data.landmarkMatch || 'Verified NIPOST Zone',
-          confidence: typeof data.confidence === 'number' ? data.confidence : 0.88,
-          source: 'NIPOST_OFFICIAL_API',
-          needsConfirmation: typeof data.confidence === 'number' ? data.confidence < 0.70 : false,
-          coordinates: {
-            lat: data.coordinates?.lat || 9.0765,
-            lng: data.coordinates?.lng || 7.4812,
-            tierLevel: (data.coordinates?.tierLevel || data.tierLevel || 4) as 1 | 2 | 3 | 4 | 5
-          }
+    const code = isExactCode ? compact : suggestion?.resolved ? suggestion.primary_match?.postcode : undefined;
+    if (code) {
+      const lookup = new URL('nipost/lookup', RESOLVEGRID_API_URL);
+      const strict = !allowSamples || Boolean(position);
+      lookup.search = new URLSearchParams({
+        code, level: '3', ...(strict ? { strict: '1' } : {}),
+        ...(position ? { lat: String(position.lat), lng: String(position.lng) } : {}),
+      }).toString();
+      const serviceToken = process.env.RESOLVEGRID_SERVICE_TOKEN?.trim();
+      const lookupHeaders = { ...headers, ...(strict && serviceToken ? { 'X-ResolveGrid-Service-Token': serviceToken } : {}) };
+      const response = await fetch(lookup, { ...options, headers: lookupHeaders, signal: AbortSignal.timeout(9000) });
+      const data = response.ok ? await response.json() as LookupResponse : null;
+      const verifiedGeometry = data?.upstream_geometry_verified === true;
+      const verifiedPosition = data?.upstream_postcode_verified === true &&
+        data.coordinate_origin === 'RESIDENT_DEVICE_REVERSE_MATCH' && Boolean(position);
+      const verified = verifiedGeometry || verifiedPosition;
+      const match = verified || allowSamples ? data?.data ?? suggestion?.primary_match : undefined;
+      const address = match?.recent_house_address;
+      const area = match?.administrative_address;
+      const lat = match?.coordinates?.latitude;
+      const lng = match?.coordinates?.longitude;
+      const district = match?.postcode?.toUpperCase().split('-').slice(0, 3).join('-');
+      if (match?.postcode && district && /^[A-Z]{2}-\d{2}-[A-Z]\d{2}$/.test(district) && match.postcode.replace(/[ -]/g, '').toUpperCase() === code.replace(/[ -]/g, '').toUpperCase() &&
+          address?.recent && area &&
+          typeof lat === 'number' && Number.isFinite(lat) && Math.abs(lat) <= 90 &&
+          typeof lng === 'number' && Number.isFinite(lng) && Math.abs(lng) <= 180) {
+        const source = verified && match.source === 'NIPOST_API_LIVE' ? 'NIPOST_OFFICIAL_API'
+          : verified && match.source === 'NIPOST_API_SANDBOX' ? 'NIPOST_SANDBOX' : 'RESOLVEGRID_FIXTURE';
+        if (source === 'RESOLVEGRID_FIXTURE' && !allowSamples) return null;
+        return {
+          rawInput: query, postcode: district, digitalPostcode: match.postcode,
+          coordinateOrigin: verifiedPosition ? 'RESIDENT_DEVICE_REVERSE_MATCH' : verifiedGeometry ? 'NIPOST_GEOMETRY' : undefined,
+          standardizedAddress: address.recent, area: area.locality_name || '', lga: area.lga_name || '',
+          state: area.state_name || '', landmarkMatch: address.landmark_notes,
+          confidence: suggestion?.confidence ?? (verified ? 1 : 0),
+          source, needsConfirmation: true,
+          coordinates: { lat, lng, tierLevel: verifiedGeometry ? 5 : 4 },
         };
-
-        queryCache.set(normalized, { result, timestamp: Date.now() });
-        return result;
       }
     }
-  } catch (err) {
-    console.warn('[ResolveGrid] Remote fetch unavailable, using NIPOST resolver engine:', (err as Error).message);
+  } catch {
+    // The booking API fails closed unless explicit sample mode is enabled.
   }
 
-  // Local NIPOST Engine Pattern Matching
-  let matchedFixture = NIPOST_PILOT_FIXTURES['900211']!;
-
-  if (normalized.includes('banex') || normalized.includes('wuse') || normalized.includes('900211') || normalized.includes('yellow duplex')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900211']!;
-  } else if (normalized.includes('maitama') || normalized.includes('farmers market') || normalized.includes('transcorp') || normalized.includes('900271')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900271']!;
-  } else if (normalized.includes('garki') || normalized.includes('secretariat') || normalized.includes('area 11') || normalized.includes('900001')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900001']!;
-  } else if (normalized.includes('asokoro') || normalized.includes('ecowas') || normalized.includes('900231')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900231']!;
-  } else if (normalized.includes('jabi') || normalized.includes('lake mall') || normalized.includes('900108')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900108']!;
-  } else if (normalized.includes('gwarinpa') || normalized.includes('3rd avenue') || normalized.includes('setraco') || normalized.includes('900104')) {
-    matchedFixture = NIPOST_PILOT_FIXTURES['900104']!;
-  } else {
-    // Substring / generic heuristics
-    const confidence = normalized.length > 10 ? 0.76 : 0.62;
-    const result: ResolveGridAddressResult = {
-      rawInput: query,
-      postcode: '900211',
-      standardizedAddress: query.length > 5 ? `${query}, Wuse 2, AMAC, Abuja FCT` : '14 Adetokunbo Ademola St, Wuse 2',
-      area: 'Wuse 2',
-      lga: 'AMAC',
-      state: 'FCT — Abuja',
-      landmarkMatch: 'Abuja Municipal Zone Grid',
-      confidence,
-      source: 'LANDMARK_INDEX',
-      needsConfirmation: confidence < 0.70,
-      coordinates: {
-        lat: 9.0765,
-        lng: 7.4812,
-        tierLevel: 3
-      }
-    };
-    queryCache.set(normalized, { result, timestamp: Date.now() });
-    return result;
-  }
-
-  const result: ResolveGridAddressResult = {
-    rawInput: query,
-    postcode: matchedFixture.postcode!,
-    standardizedAddress: matchedFixture.standardizedAddress!,
-    area: matchedFixture.area!,
-    lga: matchedFixture.lga!,
-    state: matchedFixture.state!,
-    landmarkMatch: matchedFixture.landmarkMatch,
-    confidence: matchedFixture.confidence || 0.88,
-    source: matchedFixture.source as 'NIPOST_OFFICIAL_API' | 'RESOLVEGRID_FIXTURE',
-    needsConfirmation: Boolean(matchedFixture.needsConfirmation),
-    coordinates: matchedFixture.coordinates as { lat: number; lng: number; tierLevel: 1 | 2 | 3 | 4 | 5 },
-  };
-
-  queryCache.set(normalized, { result, timestamp: Date.now() });
-  return result;
-}
-
-/**
- * Transparent, explainable dispatch calculation engine.
- */
-export function calculateDispatchEstimate(
-  distanceKm = 3.2,
-  pendingStops = 1,
-  jobId = 'TRF-EST'
-): DispatchEstimate {
-  const baseDriveMinutes = distanceKm * 3.4; // Average urban travel velocity in Abuja
-  const trafficFactor = 1.35; // Morning/midday urban congestion index
-  const stopsDelay = pendingStops * 6.5; // Average loading/verification time per stop
-  const totalEta = Math.max(8, Math.round(baseDriveMinutes * trafficFactor + stopsDelay));
-
-  return {
-    jobId,
-    distanceKm: Number(distanceKm.toFixed(1)),
-    etaMinutes: totalEta,
-    factors: {
-      baseDriveTime: Number(baseDriveMinutes.toFixed(1)),
-      trafficMultiplier: trafficFactor,
-      trafficFactor,
-      pendingStops,
-      stopsBefore: pendingStops,
-      distance: Number(distanceKm.toFixed(1))
-    }
-  };
-}
-
-/**
- * NDPA-compliant cryptographic and GPS verification for waste collection proof-of-work.
- */
-export function verifyFieldEvidence(payload: FieldEvidencePayload & { correctCode?: string }): {
-  verified: boolean;
-  message: string;
-  verifiedAt: string;
-  isWithinPostcodeBoundary: boolean;
-} {
-  const now = new Date().toISOString();
-  const correct = payload.correctCode || '4821';
-  const isPinMatch = payload.customerConfirmationCode.trim() === correct.trim();
-
-  const isGpsValid = payload.gpsLocation?.isWithinPostcodeBoundary !== false;
-
-  if (!isPinMatch) {
-    return {
-      verified: false,
-      message: 'Customer 4-digit PIN does not match. Handshake failed.',
-      verifiedAt: now,
-      isWithinPostcodeBoundary: isGpsValid
-    };
-  }
-
-  return {
-    verified: true,
-    message: `Pickup verified! Handshake code valid & collector GPS confirmed inside Postcode ${payload.postcode} boundary.`,
-    verifiedAt: now,
-    isWithinPostcodeBoundary: isGpsValid
-  };
+  if (position || !allowSamples || isExactCode) return null;
+  const zone = demoZones.find(([, pattern]) => pattern.test(normalized));
+  return zone ? { ...NIPOST_PILOT_FIXTURES[zone[0]], rawInput: query } : null;
 }

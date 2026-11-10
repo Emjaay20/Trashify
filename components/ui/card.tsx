@@ -8,7 +8,7 @@ export function Card({
   return (
     <div
       className={clsx(
-        'bg-[var(--surface)] border border-[var(--line)] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all',
+        'bg-[var(--surface)] border border-[var(--line)] rounded-md',
         className
       )}
       {...props}
@@ -41,7 +41,7 @@ export function CardFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={clsx('p-5 border-t border-[var(--line)] bg-[var(--surface-2)]/50 rounded-b-xl', className)}
+      className={clsx('p-5 border-t border-[var(--line)] bg-[var(--surface-2)]/50 rounded-b-md', className)}
       {...props}
     />
   );

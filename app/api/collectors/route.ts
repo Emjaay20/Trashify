@@ -1,35 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollectors, updateCollector } from '@/lib/db';
+import { apiAccount, apiError, privateJson } from '@/lib/auth';
+import { isCollectorAvailable, setCollectorAvailability } from '@/lib/db';
 
-export async function GET() {
-  const collectors = getCollectors();
-  return NextResponse.json({
-    success: true,
-    collectors
-  });
+export async function GET(request: Request) {
+  const account = await apiAccount(request, ['collector']);
+  if (account instanceof Response) return account;
+  return privateJson({ available: isCollectorAvailable(account) });
 }
 
-export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { id, isOnline, capacityUsedPercent } = body;
-
-    if (!id) {
-      return NextResponse.json({ error: 'Collector id is required' }, { status: 400 });
-    }
-
-    const updated = updateCollector(id, {
-      isOnline: typeof isOnline === 'boolean' ? isOnline : undefined,
-      capacityUsedPercent: typeof capacityUsedPercent === 'number' ? capacityUsedPercent : undefined
-    });
-
-    if (!updated) {
-      return NextResponse.json({ error: 'Collector not found' }, { status: 404 });
-    }
-
-    return NextResponse.json({ success: true, collector: updated });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Collector update failed';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+export async function PATCH(request: Request) {
+  const account = await apiAccount(request, ['collector']);
+  if (account instanceof Response) return account;
+  const body = await request.json().catch(() => null);
+  if (typeof body?.available !== 'boolean') return apiError('Choose an availability status.', 400);
+  return setCollectorAvailability(account, body.available)
+    ? privateJson({ available: body.available })
+    : apiError('Collector approval is required.', 403);
 }

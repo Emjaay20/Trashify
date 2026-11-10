@@ -1,0 +1,13 @@
+.git
+.next
+.data
+.env*
+node_modules
+out
+build
+coverage
+*.tsbuildinfo
+.DS_Store
+Dockerfile
+compose.yaml
+*.md

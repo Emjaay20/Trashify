@@ -1,264 +1,156 @@
 'use client';
 
-import * as React from 'react';
-import Link from 'next/link';
-import { PickupJob, MunicipalZoneStats } from '@/lib/types';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { 
-  Shield, 
-  Activity, 
-  Truck, 
-  Scale, 
-  CheckCircle2, 
-  AlertCircle, 
-  RefreshCw,
-  MapPin,
-  TrendingUp,
-  Layers
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { reportKinds, type ReportKind } from '@/lib/pickup-policy';
 
-export default function AdminDashboardPage() {
-  const [jobs, setJobs] = React.useState<PickupJob[]>([]);
-  const [zones, setZones] = React.useState<MunicipalZoneStats[]>([]);
-  const [loading, setLoading] = React.useState(true);
+type Metrics = { due: number; completed: number; onTime: number; overdue: number; medianHours: number | null };
+type DashboardData = {
+  role: 'estate' | 'municipal'; scope: string; metrics: Metrics; reported: number; closed: number;
+  zones: Array<Metrics & { code: string; area: string }>;
+  reports: Array<{ id: string; kind: ReportKind; createdAt: string; zone: string; area: string; address?: string }>;
+};
 
-  const fetchData = React.useCallback(async () => {
+function rate(value: number, total: number) {
+  return total ? `${Math.round(value / total * 100)}%` : '—';
+}
+
+export default function DashboardPage() {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState('');
+  const [closing, setClosing] = useState('');
+
+  const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const [jobsRes, zonesRes] = await Promise.all([
-        fetch('/api/jobs'),
-        fetch('/api/zones')
-      ]);
-
-      if (jobsRes.ok) {
-        const jData = await jobsRes.json();
-        if (jData.jobs) setJobs(jData.jobs);
-      }
-      if (zonesRes.ok) {
-        const zData = await zonesRes.json();
-        if (zData.zones) setZones(zData.zones);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+      const response = await fetch(`/api/zones?days=${days}`, { signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setData(data);
+      setError('');
+    } catch (error) {
+      if (!signal?.aborted) setError(error instanceof Error ? error.message : 'Could not load service metrics.');
     }
-  }, []);
+  }, [days]);
 
-  React.useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => {
+    const request = new AbortController();
+    const timer = setTimeout(() => void load(request.signal), 0);
+    return () => { clearTimeout(timer); request.abort(); };
+  }, [load]);
 
-  // Aggregate stats
-  const totalBags = jobs.reduce((acc, j) => acc + (j.estimatedBags || 0), 0);
-  const totalKg = jobs.reduce((acc, j) => acc + (j.estimatedWeightKg || 0), 0);
-  const verifiedCount = jobs.filter(j => j.status === 'verified_completed' || j.status === 'paid').length;
-  const inProgressCount = jobs.filter(j => j.status === 'collector_en_route' || j.status === 'collector_matched').length;
+  async function resolveReport(id: string) {
+    setClosing(id);
+    try {
+      const response = await fetch('/api/reports', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      await load();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not close the report.');
+    } finally {
+      setClosing('');
+    }
+  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="mx-auto max-w-6xl space-y-8 px-5 py-10 sm:px-8">
+      <header className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--line)] pb-6">
         <div>
-          <div className="flex items-center gap-2">
-            <Badge variant="forest">AMAC Municipal Console</Badge>
-            <span className="text-xs font-mono text-[var(--muted)]">Live Postal Dispatch Oversight</span>
-          </div>
-          <h1 className="font-serif text-3xl font-bold text-[var(--ink)] mt-1">
-            Abuja Waste Operations & SLA Command
-          </h1>
-          <p className="text-xs text-[var(--muted)]">
-            Powered by NIPOST 6-Digit Digital Postcodes & ResolveGrid spatial verification.
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
+            {data?.role === 'estate' ? 'Estate' : 'Municipal'} workspace
+          </p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-tight">Collection and sanitation</h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            {data ? `${data.role === 'estate' ? 'Estate' : 'Service districts'} · ${data.scope}` : 'Pickup reliability and resident reports'}
           </p>
         </div>
+        <label className="flex items-center gap-3 text-sm font-medium">
+          Period
+          <select value={days} onChange={(event) => { setData(null); setDays(Number(event.target.value)); }}
+            className="rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-3 py-2">
+            <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
+          </select>
+        </label>
+      </header>
+      {error && <p role="alert" className="text-sm text-[var(--red-tx)]">{error}</p>}
+      {!data && !error && <p role="status" className="text-sm text-[var(--muted)]">Loading service data…</p>}
+      {data && (
+        <>
+          <section aria-labelledby="reliability">
+            <h2 id="reliability" className="mb-3 text-xl font-semibold">Pickup reliability</h2>
+            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[var(--line)] bg-[var(--line)] md:grid-cols-4">
+              {[
+                ['Pickups due', String(data.metrics.due), 'Windows that ended in this period'],
+                ['On-time collection', rate(data.metrics.onTime, data.metrics.due), `${data.metrics.onTime} of ${data.metrics.due} due`],
+                ['Still overdue', String(data.metrics.overdue), 'Past the window and uncollected'],
+                ['Median time to collect', data.metrics.medianHours === null ? '—' : `${data.metrics.medianHours} h`, 'Booking to collection among completed pickups'],
+              ].map(([label, value, detail]) => (
+                <div key={label} className="bg-[var(--surface)] p-4 sm:p-5">
+                  <dt className="text-sm font-medium">{label}</dt>
+                  <dd className="my-1 text-3xl font-semibold tabular-nums text-[var(--accent)]">{value}</dd>
+                  <dd className="text-xs text-[var(--muted)]">{detail}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
-        <div className="flex items-center gap-2">
-          <Link href="/zones">
-            <Button variant="outline" size="sm">
-              <Layers className="w-3.5 h-3.5" />
-              <span>Zone Allocations</span>
-            </Button>
-          </Link>
-          <button
-            onClick={fetchData}
-            className="px-3 py-2 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-xs font-mono border border-[var(--line)] flex items-center gap-1.5"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-[#173E2C]" />
-            <span>Sync</span>
-          </button>
-        </div>
-      </div>
+          <section aria-labelledby="zones" className="space-y-3">
+            <h2 id="zones" className="text-xl font-semibold">Reliability by service district</h2>
+            {data.zones.length === 0 ? (
+              <p className="border-y border-[var(--line)] py-4 text-sm text-[var(--muted)]">Zone comparisons appear after pickup windows end.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-[var(--line)] bg-[var(--surface)]">
+                <table className="w-full min-w-[34rem] text-left text-sm">
+                  <thead className="bg-[var(--surface-2)]">
+                    <tr>{['Service district', 'Due', 'Collected', 'On time', 'Still overdue'].map((label) => <th key={label} scope="col" className="px-4 py-3 font-semibold">{label}</th>)}</tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--line)]">
+                    {data.zones.map((zone) => (
+                      <tr key={zone.code}>
+                        <th scope="row" className="px-4 py-3 font-semibold">{zone.area} <span className="text-[var(--muted)]">{zone.code}</span></th>
+                        <td className="px-4 py-3">{zone.due}</td><td className="px-4 py-3">{zone.completed}</td>
+                        <td className="px-4 py-3">{zone.onTime}/{zone.due}</td><td className="px-4 py-3">{zone.overdue}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <a href={`/api/zones/export?days=${days}`} download className="text-sm font-semibold text-[var(--accent)] underline underline-offset-4">Download aggregate CSV</a>
+              <span className="text-xs text-[var(--muted)]">Exports omit zones with fewer than five due pickups.</span>
+            </div>
+            <p className="text-sm text-[var(--muted)]">These figures describe pickups booked through Trashify in your workspace. Zone totals show the number of bookings behind each rate.</p>
+          </section>
 
-      {/* Aggregate KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4 border border-[var(--line)]">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] block">
-            Total Diverted Today
-          </span>
-          <span className="font-serif text-2xl font-bold text-[#173E2C] mt-1 block">
-            {(totalKg / 1000).toFixed(2)} Tons
-          </span>
-          <span className="text-[10px] text-[var(--muted)] font-mono flex items-center gap-1">
-            <TrendingUp className="w-3 h-3 text-[#173E2C]" /> 18.4% diverted to recyclers
-          </span>
-        </Card>
-
-        <Card className="p-4 border border-[var(--line)]">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] block">
-            SLA Handshake Compliance
-          </span>
-          <span className="font-serif text-2xl font-bold text-[#173E2C] mt-1 block">
-            97.8%
-          </span>
-          <span className="text-[10px] text-[var(--muted)] font-mono">
-            {verifiedCount} verified with GPS & PIN
-          </span>
-        </Card>
-
-        <Card className="p-4 border border-[var(--line)]">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] block">
-            Active Dispatches
-          </span>
-          <span className="font-serif text-2xl font-bold text-[var(--ink)] mt-1 block">
-            {inProgressCount} En Route
-          </span>
-          <span className="text-[10px] text-[#7A5A12] font-mono">
-            Average ETA: 16.4 mins
-          </span>
-        </Card>
-
-        <Card className="p-4 border border-[var(--line)]">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] block">
-            NIPOST Geocoding Accuracy
-          </span>
-          <span className="font-serif text-2xl font-bold text-[#173E2C] mt-1 block">
-            91.4%
-          </span>
-          <span className="text-[10px] text-[var(--muted)] font-mono">
-            Tier 4 & Tier 5 resolution
-          </span>
-        </Card>
-      </div>
-
-      {/* Municipal Zone Performance Breakdown */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <h2 className="font-serif text-lg font-bold text-[var(--ink)]">
-              Abuja Metropolitan Postcode Zone Performance
-            </h2>
-            <Badge variant="sage" size="sm">5 Pilot Zones</Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-[var(--muted)]">
-                  <th className="pb-3 font-semibold">Postcode</th>
-                  <th className="pb-3 font-semibold">Area / LGA</th>
-                  <th className="pb-3 font-semibold">Active Trucks</th>
-                  <th className="pb-3 font-semibold">Pickups Today</th>
-                  <th className="pb-3 font-semibold">Tonnage</th>
-                  <th className="pb-3 font-semibold">ResolveGrid Match</th>
-                  <th className="pb-3 font-semibold text-right">SLA Compliance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--line)]">
-                {zones.map((zone) => (
-                  <tr key={zone.postcode} className="hover:bg-[var(--surface-2)]/50 transition-colors">
-                    <td className="py-3 font-bold text-[#173E2C]">#{zone.postcode}</td>
-                    <td className="py-3 text-[var(--ink)]">{zone.area}, {zone.lga}</td>
-                    <td className="py-3">{zone.activeCollectors} collectors</td>
-                    <td className="py-3">{zone.pickupsToday} jobs</td>
-                    <td className="py-3">{zone.tonsCollected} tons</td>
-                    <td className="py-3">
-                      <span className="px-2 py-0.5 rounded-full bg-[#E9EFE6] text-[#173E2C] font-semibold">
-                        {Math.round(zone.avgConfidence * 100)}%
-                      </span>
-                    </td>
-                    <td className="py-3 text-right font-bold text-[#173E2C]">
-                      {zone.slaCompliancePercent}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Real-Time Live Job Ledger */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <h2 className="font-serif text-lg font-bold text-[var(--ink)]">
-              Real-Time Dispatch Ledger ({jobs.length} total)
-            </h2>
-            <span className="text-xs font-mono text-[var(--muted)]">Cryptographic NDPA Audit Trail</span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-[var(--muted)]">
-                  <th className="pb-3 font-semibold">Job ID</th>
-                  <th className="pb-3 font-semibold">Customer / Landmark</th>
-                  <th className="pb-3 font-semibold">Postcode</th>
-                  <th className="pb-3 font-semibold">Collector</th>
-                  <th className="pb-3 font-semibold">Bags</th>
-                  <th className="pb-3 font-semibold">Amount</th>
-                  <th className="pb-3 font-semibold">Status</th>
-                  <th className="pb-3 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--line)]">
-                {jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-[var(--surface-2)]/50 transition-colors">
-                    <td className="py-3 font-bold text-[var(--ink)]">{job.id}</td>
-                    <td className="py-3 text-[var(--ink-2)] max-w-xs truncate">
-                      <span className="font-semibold block">{job.customerName}</span>
-                      <span className="text-[11px] text-[var(--muted)] truncate block">{job.postcodeRecord.standardizedAddress}</span>
-                    </td>
-                    <td className="py-3">
-                      <Badge variant="forest" size="sm">#{job.postcodeRecord.postcode}</Badge>
-                    </td>
-                    <td className="py-3 text-[var(--ink-2)]">
-                      {job.collector?.name || 'Unassigned'}
-                    </td>
-                    <td className="py-3">{job.estimatedBags} bags</td>
-                    <td className="py-3 font-semibold text-[#173E2C]">₦{job.priceNgn.toLocaleString()}</td>
-                    <td className="py-3">
-                      <Badge
-                        variant={
-                          job.status === 'verified_completed'
-                            ? 'sage'
-                            : job.status === 'collector_en_route'
-                            ? 'amber'
-                            : 'neutral'
-                        }
-                        size="sm"
-                      >
-                        {job.status.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="py-3 text-right">
-                      <Link
-                        href={`/customer/track/${job.id}`}
-                        className="text-[#173E2C] hover:underline font-semibold"
-                      >
-                        Track
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+          <section aria-labelledby="sanitation" className="space-y-3">
+            <h2 id="sanitation" className="text-xl font-semibold">Sanitation reports</h2>
+            <p className="text-sm text-[var(--muted)]">{data.reported} reported in the last {days} days · {data.closed} of those closed · {data.reports.length} open across all dates</p>
+            <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
+              {data.reports.length === 0 && <p className="py-4 text-sm text-[var(--muted)]">No open reports in your workspace.</p>}
+              {data.reports.map((report) => (
+                <div key={report.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
+                  <div>
+                    <p className="font-medium">{reportKinds[report.kind]}</p>
+                    <p className="text-sm text-[var(--muted)]">
+                      {report.area} · {report.zone} · {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' }).format(new Date(report.createdAt))}
+                    </p>
+                    {report.address && <p className="text-sm">{report.address}</p>}
+                    <p className="text-xs text-[var(--muted)]">Report {report.id.slice(0, 8).toUpperCase()}</p>
+                  </div>
+                  <button type="button" disabled={Boolean(closing)} onClick={() => void resolveReport(report.id)}
+                    className="rounded-md border border-[var(--line-2)] px-3 py-2 text-sm font-semibold text-[var(--accent)] hover:bg-[var(--surface-2)] disabled:opacity-50">
+                    {closing === report.id ? 'Saving…' : 'Mark addressed'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-[var(--muted)]">Mark a report addressed after confirming the issue has been handled.</p>
+          </section>
+        </>
+      )}
     </div>
   );
 }

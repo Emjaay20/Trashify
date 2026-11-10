@@ -2,31 +2,29 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { pickupPrice, pickupWindows, wasteCategories } from '@/lib/pickup-policy';
 import { ResolveGridAddressResult, WasteCategory } from '@/lib/types';
+import { useDemoMode } from '@/components/demo-mode';
 import { AddressResolver } from '@/components/address-resolver';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Trash2, Plus, Minus, ArrowRight, ShieldCheck, Sparkles, Clock, CheckCircle } from 'lucide-react';
+import { Plus, Minus, ArrowRight, CheckCircle } from 'lucide-react';
 
 export default function CustomerBookPage() {
   const router = useRouter();
-  const [customerName, setCustomerName] = React.useState('Adaeze Okonkwo');
-  const [customerPhone, setCustomerPhone] = React.useState('+234 809 555 0192');
-  const [estateName, setEstateName] = React.useState('Sunrise Estate');
-  const [addressInput, setAddressInput] = React.useState('Yellow duplex near Banex, Wuse 2');
+  const demo = useDemoMode();
+  const [customerPhone, setCustomerPhone] = React.useState('');
   const [resolvedRecord, setResolvedRecord] = React.useState<ResolveGridAddressResult | null>(null);
 
-  const [categories, setCategories] = React.useState<WasteCategory[]>(['mixed', 'plastics']);
+  const [categories, setCategories] = React.useState<WasteCategory[]>(['mixed']);
   const [bags, setBags] = React.useState(4);
   const [pickupWindow, setPickupWindow] = React.useState('Morning (08:00 - 11:00)');
   const [loading, setLoading] = React.useState(false);
+  const [bookingError, setBookingError] = React.useState('');
+  const pendingRequest = React.useRef<{ body: string; id: string } | null>(null);
 
-  // Price Calculation
-  const basePrice = 3000 + (bags - 1) * 500;
-  const hasRecyclables = categories.some(c => ['plastics', 'paper', 'metal'].includes(c));
-  const recyclableCredit = hasRecyclables ? 200 * Math.min(bags, 3) : 0;
-  const netPrice = Math.max(2500, basePrice - recyclableCredit);
+  const { priceNgn: basePrice, recyclableCreditNgn: recyclableCredit } = pickupPrice(bags, categories);
+  const netPrice = basePrice - recyclableCredit;
 
   const toggleCategory = (cat: WasteCategory) => {
     if (categories.includes(cat)) {
@@ -40,37 +38,35 @@ export default function CustomerBookPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addressInput) return;
+    if (!resolvedRecord || loading) return;
 
     setLoading(true);
+    setBookingError('');
     try {
+      const body = JSON.stringify({
+        customerPhone,
+        rawAddressInput: resolvedRecord.rawInput,
+        confirmedPostcode: resolvedRecord.digitalPostcode ?? resolvedRecord.postcode,
+        position: resolvedRecord.coordinateOrigin === 'RESIDENT_DEVICE_REVERSE_MATCH' && resolvedRecord.coordinates
+          ? { lat: resolvedRecord.coordinates.lat, lng: resolvedRecord.coordinates.lng } : undefined,
+        wasteCategories: categories,
+        estimatedBags: bags,
+        pickupWindow,
+      });
+      if (pendingRequest.current?.body !== body) pendingRequest.current = { body, id: crypto.randomUUID() };
       const res = await fetch('/api/jobs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName,
-          customerPhone,
-          estateName,
-          rawAddressInput: addressInput,
-          wasteCategories: categories,
-          estimatedBags: bags,
-          scheduledDate: 'Today, On-Demand',
-          pickupWindow
-        })
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pendingRequest.current.id },
+        body,
       });
 
-      if (!res.ok) {
-        throw new Error('Failed to create pickup booking');
-      }
-
       const data = await res.json();
-      if (data.job?.id) {
-        router.push(`/customer/track/${data.job.id}`);
-      } else {
-        router.push('/customer/track/TRF-1042');
+      if (!res.ok || !data.job?.id) {
+        throw new Error(data.error || 'Could not book the pickup. Try again.');
       }
-    } catch (err: unknown) {
-      alert((err as Error).message);
+      router.push(`/track/${data.job.id}`);
+    } catch (error) {
+      setBookingError(error instanceof Error ? error.message : 'Could not book the pickup. Try again.');
     } finally {
       setLoading(false);
     }
@@ -80,16 +76,9 @@ export default function CustomerBookPage() {
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
       {/* Page Title */}
       <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Badge variant="forest">Resident Portal</Badge>
-          <span className="text-xs font-mono text-[var(--muted)]">Step 1: On-Demand Pickup</span>
-        </div>
-        <h1 className="font-serif text-3xl font-bold text-[var(--ink)]">
-          Schedule Waste Pickup
-        </h1>
-        <p className="text-sm text-[var(--muted)]">
-          Standardized with ResolveGrid and matched instantly to licensed municipal collectors in your NIPOST zone.
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">Resident workspace</p>
+        <h1 className="text-4xl font-semibold tracking-tight text-[var(--ink)]">Book a waste pickup</h1>
+        <p className="text-sm text-[var(--muted)]">Choose the pickup location, tell us what to collect and pick a time window.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -97,77 +86,48 @@ export default function CustomerBookPage() {
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <h2 className="font-serif text-lg font-semibold text-[var(--ink)] flex items-center gap-2">
-                <Trash2 className="w-5 h-5 text-[#173E2C]" />
-                <span>1. Location & ResolveGrid Landmark</span>
-              </h2>
+              <h2 className="text-lg font-semibold">1. Pickup location</h2>
             </CardHeader>
             <CardContent className="space-y-4">
-              <AddressResolver
-                initialValue={addressInput}
-                onResolved={(res) => {
-                  setResolvedRecord(res);
-                  setAddressInput(res.rawInput);
-                }}
-              />
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-mono text-[var(--muted)] mb-1">
-                    Estate / Compound Name (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={estateName}
-                    onChange={(e) => setEstateName(e.target.value)}
-                    placeholder="e.g. Sunrise Estate"
-                    className="w-full px-3 py-2 bg-[var(--surface-2)] border border-[var(--line)] rounded-lg text-sm focus:outline-none focus:border-[#173E2C]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-mono text-[var(--muted)] mb-1">
-                    Customer Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 bg-[var(--surface-2)] border border-[var(--line)] rounded-lg text-sm focus:outline-none focus:border-[#173E2C]"
-                  />
-                </div>
-              </div>
+              <AddressResolver onResolved={setResolvedRecord} />
+              {!demo && <label className="block border-t border-[var(--line)] pt-4 text-sm font-medium">
+                Phone for your assigned collector (optional)
+                <input type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} maxLength={23}
+                  autoComplete="tel" placeholder="+234…" className="mt-1 block w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5" />
+              </label>}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
-                2. Waste Categories & Bag Estimate
+              <h2 className="text-lg font-semibold text-[var(--ink)]">
+                2. Waste and pickup time
               </h2>
             </CardHeader>
             <CardContent className="space-y-5">
               {/* Waste categories multi-select */}
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-[var(--muted)] mb-2">
-                  Waste Stream Categories
+                <label className="block text-xs uppercase tracking-wider text-[var(--muted)] mb-2">
+                  Waste type
                 </label>
+                <p className="mb-3 text-sm text-[var(--muted)]">Trashify does not accept medical or chemical waste.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {(['mixed', 'plastics', 'paper', 'metal', 'e-waste', 'organic'] as WasteCategory[]).map((cat) => {
+                  {wasteCategories.map((cat) => {
                     const isSelected = categories.includes(cat);
                     return (
                       <button
                         key={cat}
                         type="button"
                         onClick={() => toggleCategory(cat)}
-                        className={`p-3 rounded-xl border text-left capitalize text-xs font-mono transition-all flex items-center justify-between ${
+                        aria-pressed={isSelected}
+                        className={`p-3 rounded-md border text-left capitalize text-xs transition-all flex items-center justify-between ${
                           isSelected
-                            ? 'border-[#173E2C] bg-[#E9EFE6] text-[#173E2C] font-semibold'
+                            ? 'border-[#41357e] bg-[#ece8fb] text-[#41357e] font-semibold'
                             : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)] hover:bg-[var(--surface-3)]'
                         }`}
                       >
                         <span>{cat}</span>
-                        {isSelected && <CheckCircle className="w-3.5 h-3.5 text-[#173E2C]" />}
+                        {isSelected && <CheckCircle className="w-3.5 h-3.5 text-[#41357e]" />}
                       </button>
                     );
                   })}
@@ -175,10 +135,10 @@ export default function CustomerBookPage() {
               </div>
 
               {/* Bag Counter */}
-              <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--surface-2)] border border-[var(--line)]">
+              <div className="flex items-center justify-between p-4 rounded-md bg-[var(--surface-2)] border border-[var(--line)]">
                 <div>
                   <span className="text-sm font-semibold text-[var(--ink)] block">
-                    Estimated Bag Count
+                    Estimated bags
                   </span>
                   <span className="text-xs text-[var(--muted)]">
                     Standard 50L refuse bags (~{bags * 6}kg total)
@@ -187,17 +147,20 @@ export default function CustomerBookPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
+                    aria-label="Remove one bag"
                     onClick={() => setBags(Math.max(1, bags - 1))}
                     className="w-9 h-9 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-center hover:bg-[var(--surface-3)] transition-colors"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="font-mono text-lg font-bold w-6 text-center">
+                  <span className="text-lg font-bold w-6 text-center">
                     {bags}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setBags(bags + 1)}
+                    aria-label="Add one bag"
+                    disabled={bags >= 100}
+                    onClick={() => setBags(Math.min(100, bags + 1))}
                     className="w-9 h-9 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-center hover:bg-[var(--surface-3)] transition-colors"
                   >
                     <Plus className="w-4 h-4" />
@@ -207,22 +170,21 @@ export default function CustomerBookPage() {
 
               {/* Time Window */}
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-[var(--muted)] mb-2">
-                  Preferred Pickup Window
-                </label>
+                <p className="mb-2 text-sm text-[var(--muted)]">Pickup window · next available day in Abuja</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {['Morning (08:00 - 11:00)', 'Midday (11:30 - 14:00)', 'Afternoon (14:30 - 17:00)'].map((win) => (
+                  {pickupWindows.map(({ value: win }) => (
                     <button
                       key={win}
                       type="button"
                       onClick={() => setPickupWindow(win)}
-                      className={`p-2.5 rounded-lg border text-xs font-mono transition-all text-center ${
+                      aria-pressed={pickupWindow === win}
+                      className={`p-2.5 rounded-lg border text-xs transition-all text-center ${
                         pickupWindow === win
-                          ? 'border-[#173E2C] bg-[#173E2C] text-[#FAF8F3] font-medium'
+                          ? 'border-[#41357e] bg-[#41357e] text-[#f7f5f1] font-medium'
                           : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)] hover:bg-[var(--surface-3)]'
                       }`}
                     >
-                      {win.split(' ')[0]}
+                      {win}
                     </button>
                   ))}
                 </div>
@@ -233,51 +195,35 @@ export default function CustomerBookPage() {
 
         {/* Right Sidebar: Summary, Price Breakdown, Dispatch factors */}
         <div className="space-y-6">
-          <Card className="sticky top-20 border-2 border-[#173E2C]/20 bg-[#FAF8F3]">
-            <CardHeader className="bg-[#E9EFE6] rounded-t-xl border-b border-[#D6D0BE]">
+          <Card className="sticky top-6">
+            <CardHeader>
               <div className="flex items-center justify-between">
-                <span className="font-mono text-xs uppercase tracking-wider text-[#173E2C] font-semibold">
-                  Pickup Summary
+                <span className="text-xs uppercase tracking-wider text-[#41357e] font-semibold">
+                  Pickup summary
                 </span>
-                <span className="font-mono text-xs text-[#173E2C]">Live Quote</span>
+                <span className="text-xs text-[#41357e]">Estimate</span>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between text-[var(--muted)]">
-                  <span>Base Pickup Fee ({bags} bags)</span>
-                  <span className="font-mono text-[var(--ink)]">₦{basePrice.toLocaleString()}</span>
+                  <span>Pickup fee ({bags} bags)</span>
+                  <span className="text-[var(--ink)]">₦{basePrice.toLocaleString()}</span>
                 </div>
                 {recyclableCredit > 0 && (
-                  <div className="flex justify-between text-[#173E2C] font-medium">
+                  <div className="flex justify-between text-[#41357e] font-medium">
                     <span className="flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5 text-[#9A7E4A]" /> Recyclables Incentive
+                      Recycling credit
                     </span>
                     <span className="font-mono">-₦{recyclableCredit.toLocaleString()}</span>
                   </div>
                 )}
-                <div className="pt-2 border-t border-[#E3DED0] flex justify-between items-baseline">
-                  <span className="font-serif text-base font-bold text-[var(--ink)]">Total Amount</span>
-                  <span className="font-serif text-2xl font-bold text-[#173E2C]">
+                <div className="pt-2 border-t border-[#ddd7e4] flex justify-between items-baseline">
+                  <span className="text-base font-bold text-[var(--ink)]">Estimated total</span>
+                  <span className="text-2xl font-bold text-[#41357e]">
                     ₦{netPrice.toLocaleString()}
                   </span>
                 </div>
-              </div>
-
-              {/* Explainable Dispatch Preview */}
-              <div className="p-3 bg-[var(--surface)] rounded-xl border border-[var(--line)] space-y-2">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] block">
-                  Explainable Dispatch Preview
-                </span>
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="flex items-center gap-1 text-[var(--ink-2)]">
-                    <Clock className="w-3.5 h-3.5 text-[#173E2C]" /> Est. Arrival Time
-                  </span>
-                  <span className="font-bold text-[#173E2C]">~16 mins</span>
-                </div>
-                <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                  Calculated using 3.2km route distance in Postcode {resolvedRecord?.postcode || '900211'} + morning municipal traffic index (1.35x).
-                </p>
               </div>
 
               <div className="pt-2 space-y-2">
@@ -285,21 +231,19 @@ export default function CustomerBookPage() {
                   type="submit"
                   variant="primary"
                   className="w-full py-3.5 text-base"
-                  disabled={loading}
+                  disabled={loading || !resolvedRecord}
                 >
                   {loading ? (
-                    <span>Dispatching Collector...</span>
+                    <span>Booking pickup…</span>
                   ) : (
                     <>
-                      <span>Confirm & Match Driver</span>
+                      <span>Book pickup</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
-                <div className="flex items-center justify-center gap-1.5 text-[11px] text-[var(--muted)] font-mono">
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#173E2C]" />
-                  <span>Verified 4-Digit Handshake PIN Issued</span>
-                </div>
+                {!resolvedRecord && <p className="text-xs text-[var(--muted)]">Confirm a pickup location to continue.</p>}
+                {bookingError && <p role="alert" className="text-sm text-[var(--red-tx)]">{bookingError}</p>}
               </div>
             </CardContent>
           </Card>

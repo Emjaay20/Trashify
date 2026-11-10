@@ -1,19 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { sampleAddress } from '@/lib/demo-sample';
+import { apiAccount, apiError, attempt, privateJson } from '@/lib/auth';
+import { isPickupPosition } from '@/lib/pickup-policy';
 import { resolveAddressWithResolveGrid } from '@/lib/resolvegrid';
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const query = searchParams.get('q') || searchParams.get('address') || '';
-
-  if (!query || query.trim().length === 0) {
-    return NextResponse.json({ error: 'Query parameter "q" is required' }, { status: 400 });
-  }
-
-  try {
-    const result = await resolveAddressWithResolveGrid(query);
-    return NextResponse.json(result);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'ResolveGrid query failed';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+export async function POST(request: Request) {
+  const account = await apiAccount(request, ['resident']);
+  if (account instanceof Response) return account;
+  const body = await request.json().catch(() => null);
+  const query = typeof body?.query === 'string' ? body.query.trim() : '';
+  if (!query || query.length > 300) return apiError('Enter a building postcode or address of up to 300 characters.', 400);
+  if (!attempt(`resolve:${account.id}`, 60, 3600_000)) return apiError('Too many lookups. Try again in an hour.', 429);
+  const position = body?.position;
+  if (position !== undefined && !isPickupPosition(position)) return apiError('Invalid pickup coordinates.', 400);
+  const result = account.demoGroup ? sampleAddress(query) : await resolveAddressWithResolveGrid(query, position);
+  if (!result?.coordinates) return apiError(account.demoGroup ? 'Choose the sample postcode to try a lookup.' : position ? 'Could not match this location to that postcode. Check the building code and try from the pickup spot.'
+    : 'No verified building coordinates found. Enter the exact building postcode and verify it from the pickup spot.', 422);
+  return privateJson(result);
 }

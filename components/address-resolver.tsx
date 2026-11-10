@@ -1,178 +1,127 @@
 'use client';
 
-import * as React from 'react';
+import { useId, useState } from 'react';
+import { samplePostcode } from '@/lib/demo-sample';
+import { useDemoMode } from '@/components/demo-mode';
+import type { PickupPosition } from '@/lib/pickup-policy';
 import { ResolveGridAddressResult } from '@/lib/types';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MapPin, Search, CheckCircle2, AlertTriangle, Sparkles, Navigation, Check } from 'lucide-react';
 
 interface AddressResolverProps {
-  initialValue?: string;
-  onResolved: (result: ResolveGridAddressResult) => void;
-  className?: string;
+  onResolved: (result: ResolveGridAddressResult | null) => void;
 }
 
-const PRESET_LANDMARKS = [
-  'Yellow duplex near Banex, Wuse 2',
-  'Behind Farmers Market, Maitama',
-  'Federal Secretariat Junction, Garki',
-  'Close to ECOWAS, Asokoro',
-  'Alex Ekwueme Way near Jabi Lake Mall',
-];
+export function AddressResolver({ onResolved }: AddressResolverProps) {
+  const inputId = useId();
+  const demo = useDemoMode();
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ResolveGridAddressResult | null>(null);
+  const [error, setError] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
 
-export function AddressResolver({ initialValue = '', onResolved, className }: AddressResolverProps) {
-  const [query, setQuery] = React.useState(initialValue);
-  const [loading, setLoading] = React.useState(false);
-  const [result, setResult] = React.useState<ResolveGridAddressResult | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [confirmed, setConfirmed] = React.useState(false);
-
-  const handleResolve = React.useCallback(async (textToResolve: string) => {
-    if (!textToResolve.trim()) return;
+  async function lookup(address: string, useLocation = false) {
+    if (!address.trim() || loading) return;
     setLoading(true);
-    setError(null);
+    setResult(null);
     setConfirmed(false);
+    setError('');
+    onResolved(null);
 
     try {
-      const res = await fetch(`/api/resolve?q=${encodeURIComponent(textToResolve)}`);
-      if (!res.ok) {
-        throw new Error(`Resolution error (${res.status})`);
+      let position: PickupPosition | undefined;
+      if (useLocation) {
+        if (!navigator.geolocation) throw new Error('Device location is unavailable.');
+        const { coords } = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, () => reject(
+            new Error('Allow location access and try again from the pickup spot.')
+          ), { enableHighAccuracy: true, timeout: 12_000, maximumAge: 0 });
+        });
+        if (coords.accuracy > 50) throw new Error('Move to the pickup spot and try again for a more accurate location.');
+        position = { lat: coords.latitude, lng: coords.longitude };
       }
-      const data: ResolveGridAddressResult = await res.json();
+      const response = await fetch('/api/resolve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: address.trim(), position }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not look up the pickup location.');
       setResult(data);
-      setConfirmed(!data.needsConfirmation);
-      onResolved(data);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to connect to ResolveGrid';
-      setError(msg);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not look up the pickup location.');
     } finally {
       setLoading(false);
     }
-  }, [onResolved]);
+  }
 
-  // Initial resolve if initialValue provided
-  React.useEffect(() => {
-    if (initialValue && !result) {
-      handleResolve(initialValue);
-    }
-  }, [initialValue, handleResolve, result]);
+  const exactCode = /^[A-Z]{2}\d{2}[A-Z]\d{2}[A-Z]{2}\d{2}$/.test(query.toUpperCase().replace(/[ -]/g, ''));
+  const source = result?.source === 'NIPOST_OFFICIAL_API'
+    ? 'NIPOST live lookup'
+    : result?.source === 'NIPOST_SANDBOX' ? 'NIPOST sandbox' : 'Sample address';
 
   return (
-    <div className={`space-y-4 ${className || ''}`}>
-      <div>
-        <label className="block text-xs uppercase tracking-wider font-mono text-[var(--muted)] mb-2">
-          Pickup Landmark or Informal Address (ResolveGrid × NIPOST)
-        </label>
-        <div className="relative flex items-center">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleResolve(query))}
-            placeholder="e.g. Yellow duplex near Banex, Wuse 2"
-            className="w-full pl-10 pr-24 py-3 bg-[var(--surface)] border border-[var(--line)] rounded-xl text-sm focus:outline-none focus:border-[#173E2C] transition-colors shadow-inner"
-          />
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted)]" />
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={() => handleResolve(query)}
-            disabled={loading || !query.trim()}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2"
-          >
-            {loading ? (
-              <span className="animate-spin text-xs">●</span>
-            ) : (
-              <>
-                <Search className="w-3.5 h-3.5" />
-                <span>Resolve</span>
-              </>
-            )}
-          </Button>
-        </div>
+    <div className="space-y-3">
+      <label htmlFor={inputId} className="block text-sm font-medium">Building postcode or nearby landmark</label>
+      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+        <input
+          id={inputId}
+          value={query}
+          disabled={loading}
+          maxLength={300}
+          placeholder="e.g. Yellow duplex near Banex, Wuse 2"
+          className="min-w-0 flex-1 basis-full rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-3 py-2.5 text-sm sm:basis-auto"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setResult(null);
+            setError('');
+            setConfirmed(false);
+            onResolved(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void lookup(query);
+            }
+          }}
+        />
+        <Button type="button" variant="outline" onClick={() => void lookup(query)} disabled={loading || !query.trim()}>
+          {loading ? 'Looking up…' : 'Find location'}
+        </Button>
       </div>
-
-      {/* Preset pills for quick testing */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-[var(--muted)] font-mono flex items-center gap-1">
-          <Sparkles className="w-3 h-3 text-[#9A7E4A]" /> Quick Fill:
-        </span>
-        {PRESET_LANDMARKS.map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            onClick={() => {
-              setQuery(preset);
-              handleResolve(preset);
-            }}
-            className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--ink-2)] border border-[var(--line)] transition-colors"
-          >
-            {preset.split(',')[0]}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div className="p-3 bg-[#FDECEC] border border-[#FCD5D5] rounded-lg text-xs text-[#7A1F1F] flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+      {demo && !result && (
+        <Button type="button" variant="ghost" disabled={loading} onClick={() => {
+          setQuery(samplePostcode);
+          void lookup(samplePostcode);
+        }}>Use sample postcode</Button>
       )}
-
-      {/* Resolved Result Card */}
+      {!demo && exactCode && !result && (
+        <Button type="button" variant="ghost" disabled={loading} onClick={() => void lookup(query, true)}>
+          Verify postcode at my location
+        </Button>
+      )}
+      {error && <p role="alert" className="text-sm text-[var(--red-tx)]">{error}</p>}
       {result && (
-        <div className="p-4 rounded-xl border border-[#D6D0BE] bg-[#FAF8F3] space-y-3 shadow-sm transition-all animate-in fade-in">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-sm font-semibold text-[#173E2C] flex items-center gap-1">
-                  <Navigation className="w-3.5 h-3.5 text-[#173E2C]" /> Postcode {result.postcode}
-                </span>
-                <Badge variant={result.source === 'NIPOST_OFFICIAL_API' ? 'forest' : 'brass'} size="sm">
-                  {result.source === 'NIPOST_OFFICIAL_API' ? 'NIPOST Official' : 'ResolveGrid'}
-                </Badge>
-                {result.coordinates?.tierLevel && (
-                  <Badge variant="neutral" size="sm">
-                    Tier {result.coordinates.tierLevel}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-sm font-medium text-[var(--ink)] leading-snug">
-                {result.standardizedAddress}
-              </p>
-              <p className="text-xs text-[var(--muted)] mt-0.5">
-                {result.area}, {result.lga}, {result.state}
-                {result.landmarkMatch && ` • Ref: ${result.landmarkMatch}`}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <span className="font-mono text-xs font-semibold text-[#173E2C]">
-                {Math.round(result.confidence * 100)}%
-              </span>
-              <p className="text-[10px] text-[var(--muted)] font-mono">confidence</p>
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-[#E3DED0] flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 text-[var(--muted)]">
-              <CheckCircle2 className="w-3.5 h-3.5 text-[#173E2C]" />
-              <span>Standardized geometry ready for collector route</span>
-            </div>
-            {result.needsConfirmation && !confirmed ? (
-              <button
-                type="button"
-                onClick={() => setConfirmed(true)}
-                className="px-2.5 py-1 bg-[#FEF6E0] text-[#7A5A12] border border-[#F2EAD3] rounded-md font-mono text-[11px] hover:bg-[#FCEAC2] transition-colors"
-              >
-                Confirm Address
-              </button>
-            ) : (
-              <span className="font-mono text-[11px] text-[#173E2C] flex items-center gap-1 font-medium">
-                <Check className="w-3 h-3" /> Verified Zone
-              </span>
+        <div className="space-y-3 border-l-2 border-[var(--accent)] bg-[var(--surface-2)] p-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{source}</p>
+            <p className="mt-1 font-semibold">{result.standardizedAddress}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {result.digitalPostcode ? `Building ${result.digitalPostcode} · ` : ''}Service district {result.postcode}
+            </p>
+            {result.coordinateOrigin === 'RESIDENT_DEVICE_REVERSE_MATCH' && (
+              <p className="mt-2 text-sm text-[var(--muted)]">NIPOST matched your device location to this building code.</p>
+            )}
+            {result.source === 'RESOLVEGRID_FIXTURE' && (
+              <p className="mt-2 text-sm text-[var(--muted)]">Use this location for a demo pickup.</p>
             )}
           </div>
+          {confirmed ? (
+            <p role="status" className="text-sm font-semibold text-[var(--accent)]">Pickup location confirmed</p>
+          ) : (
+            <Button type="button" size="sm" onClick={() => {
+              setConfirmed(true);
+              onResolved(result);
+            }}>Use this location</Button>
+          )}
         </div>
       )}
     </div>
