@@ -80,6 +80,7 @@ function ActivePickup() {
         <h1 className="mt-2 text-4xl font-semibold tracking-tight">{completed ? 'Pickup complete' : 'Collection stop'}</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">{job.scheduledDate} · {job.pickupWindow}</p>
       </header>
+      {job.postcodeRecord.source === 'NIPOST_STRUCTURE_VERIFIED' && <p className="rounded-md border border-[var(--line)] p-4 text-sm">Pilot pickup. NIPOST checked the postcode structure; the location is supplied by the resident or demo.</p>}
       <Card>
         <CardHeader><h2 className="text-lg font-semibold">Pickup location</h2></CardHeader>
         <CardContent className="space-y-3">

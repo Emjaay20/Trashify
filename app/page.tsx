@@ -80,8 +80,8 @@ export default function Home() {
         </div>
       </section>
       <section className="grid gap-5 border-t border-[var(--line)] py-9 md:grid-cols-[1fr_1.2fr]">
-        <h2 className="text-2xl font-semibold tracking-tight">A public-health approach to waste collection</h2>
-        <p className="text-[var(--muted)]">See which pickups are overdue, how long collection takes, and where residents report waste accumulation. Estate and municipal teams can use that information to follow up and compare service reliability across areas.</p>
+        <div><h2 className="text-2xl font-semibold tracking-tight">A public-health approach to waste collection</h2><Link href="/public-health" className="mt-4 inline-block text-sm font-semibold text-[var(--accent)] underline underline-offset-4">Explore our public-health pilot</Link></div>
+        <p className="text-[var(--muted)]">Developed from a public-health PhD student’s original idea, Trashify connects collection service with sanitation follow-up. See which pickups are overdue, how long collection takes, and where residents report waste accumulation. Estate and municipal teams can use that information to follow up and compare service reliability across areas.</p>
       </section>
       <footer className="flex flex-wrap justify-between gap-2 border-t border-[var(--line)] py-6 text-sm text-[var(--muted)]">
         <span>Trashify · Abuja</span><Link href="/privacy" className="hover:underline">Data and privacy</Link>

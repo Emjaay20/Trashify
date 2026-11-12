@@ -1,14 +1,14 @@
 import type { ResolveGridAddressResult } from './types';
 
-export const samplePostcode = 'FC-02-A09-DB-09';
+export const samplePostcode = 'FC-01-A01-KP-27';
 export const samplePin = '4821';
 
 export function sampleAddress(query: string): ResolveGridAddressResult | null {
   const compact = query.toUpperCase().replace(/[ -]/g, '');
-  if (compact !== samplePostcode.replace(/-/g, '')) return null;
+  if (![samplePostcode.replace(/-/g, ''), 'FC02A09DB09'].includes(compact)) return null;
   return {
-    rawInput: samplePostcode, postcode: 'FC-02-A09', digitalPostcode: samplePostcode,
-    standardizedAddress: '12 Sample Crescent, Wuse II, Abuja', area: 'Wuse II', lga: 'AMAC', state: 'Abuja',
+    rawInput: query, postcode: compact === 'FC02A09DB09' ? 'FC-02-A09' : 'FC-01-A01', digitalPostcode: compact === 'FC02A09DB09' ? 'FC-02-A09-DB-09' : samplePostcode,
+    standardizedAddress: '12 Sample Crescent · Demonstration pickup', area: 'Sample area', lga: 'AMAC', state: 'Abuja',
     confidence: 1, source: 'RESOLVEGRID_FIXTURE', needsConfirmation: true,
     coordinates: { lat: 9.07874, lng: 7.47018, tierLevel: 4 },
   };

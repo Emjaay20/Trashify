@@ -12,6 +12,24 @@ export function PickupReports({ jobId, canReportMissed }: { jobId: string; canRe
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [description, setDescription] = useState('');
+  const [kind, setKind] = useState('');
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState('');
+
+  async function suggest() {
+    setSuggesting(true);
+    setSuggestion('');
+    try {
+      const response = await fetch('/api/ai/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: description }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (data.kind) setKind(data.kind);
+      setSuggestion(data.message);
+      setDescription('');
+    } catch { setSuggestion('Choose the issue type manually to continue.'); }
+    finally { setSuggesting(false); }
+  }
 
   useEffect(() => {
     const request = new AbortController();
@@ -64,8 +82,15 @@ export function PickupReports({ jobId, canReportMissed }: { jobId: string; canRe
         )}
         {available.length > 0 && (
           <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
+            <label className="block w-full text-sm font-medium">Describe the waste problem (optional)
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={2}
+                placeholder="e.g. Rubbish is blocking the gutter" className="mt-1 block w-full rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-3 py-2" />
+            </label>
+            <p className="text-xs text-[var(--muted)]">Only detected sanitation categories are sent for AI suggestions. Choose or review the issue type before sending.</p>
+            <Button type="button" variant="outline" disabled={suggesting || !description.trim()} onClick={() => void suggest()}>{suggesting ? 'Suggesting…' : 'Suggest issue type'}</Button>
+            {suggestion && <p role="status" className="w-full text-sm text-[var(--accent)]">{suggestion}</p>}
             <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-medium">Issue type
-              <select name="kind" required defaultValue="" className="w-full rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-3 py-2">
+              <select name="kind" required value={kind} onChange={(event) => setKind(event.target.value)} className="w-full rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-3 py-2">
                 <option value="" disabled>Choose an issue</option>
                 {available.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
               </select>

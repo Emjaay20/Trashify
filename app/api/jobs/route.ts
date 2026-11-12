@@ -1,8 +1,7 @@
-import { sampleAddress } from '@/lib/demo-sample';
 import { apiAccount, apiError, attempt, privateJson } from '@/lib/auth';
 import { createJob, findBookingRequest, getJobs, visibleJob } from '@/lib/db';
 import { isPickupPosition, pickupDeadline, pickupPrice, wasteCategories } from '@/lib/pickup-policy';
-import { resolveAddressWithResolveGrid } from '@/lib/resolvegrid';
+import { resolvePickup } from '@/lib/pilot-resolve';
 import type { WasteCategory } from '@/lib/types';
 
 export async function GET(request: Request) {
@@ -36,7 +35,7 @@ export async function POST(request: Request) {
     return apiError('Check the pickup location, phone, waste types, bag count and pickup window.', 400);
   }
 
-  const postcodeRecord = account.demoGroup ? sampleAddress(address) : await resolveAddressWithResolveGrid(address, position);
+  const postcodeRecord = await resolvePickup(address, position, Boolean(account.demoGroup));
   if (!postcodeRecord || !postcodeRecord.coordinates ||
       body.confirmedPostcode !== (postcodeRecord.digitalPostcode ?? postcodeRecord.postcode)) {
     return apiError('Look up and confirm a pickup location with building coordinates.', 422);

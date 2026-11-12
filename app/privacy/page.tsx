@@ -8,7 +8,7 @@ export default function PrivacyPage() {
         <p>Your assigned collector sees the pickup location and the contact number you choose to provide. During completion, Trashify checks the collector’s device location against the pickup address and records the result and time.</p>
       </section>
       <section className="space-y-2">
-        <h2 className="text-xl font-semibold">Sanitation reports</h2>
+<h2 className="text-xl font-semibold">Sanitation reports</h2><p>Optional descriptions are processed into a fixed list of sanitation signals. Only those categories go to the AI provider for a suggested issue type. The description is not stored with the report. Dashboard AI receives service totals by district. You review suggestions before filing.</p>
         <p>Staff in the relevant service districts and, where applicable, your estate can see pickup status and issue categories. You can choose to share the pickup address for an individual report so staff can locate the issue. Staff access to that report address ends when the report is closed.</p>
         <p>Report observable waste problems. Do not include anyone’s medical information. The dashboard describes service activity on Trashify and does not record health outcomes.</p>
       </section>

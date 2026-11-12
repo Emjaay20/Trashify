@@ -54,7 +54,7 @@ export function AddressResolver({ onResolved }: AddressResolverProps) {
   }
 
   const exactCode = /^[A-Z]{2}\d{2}[A-Z]\d{2}[A-Z]{2}\d{2}$/.test(query.toUpperCase().replace(/[ -]/g, ''));
-  const source = result?.source === 'NIPOST_OFFICIAL_API'
+  const source = result?.source === 'NIPOST_STRUCTURE_VERIFIED' ? 'NIPOST structure check' : result?.source === 'NIPOST_OFFICIAL_API'
     ? 'NIPOST live lookup'
     : result?.source === 'NIPOST_SANDBOX' ? 'NIPOST sandbox' : 'Sample address';
 
@@ -93,20 +93,22 @@ export function AddressResolver({ onResolved }: AddressResolverProps) {
           void lookup(samplePostcode);
         }}>Use sample postcode</Button>
       )}
-      {!demo && exactCode && !result && (
+      {!demo && exactCode && (!result || !result.coordinates) && (
         <Button type="button" variant="ghost" disabled={loading} onClick={() => void lookup(query, true)}>
-          Verify postcode at my location
+          Use my location for pickup
         </Button>
       )}
       {error && <p role="alert" className="text-sm text-[var(--red-tx)]">{error}</p>}
       {result && (
         <div className="space-y-3 border-l-2 border-[var(--accent)] bg-[var(--surface-2)] p-4">
           <div>
+            {result.source === 'NIPOST_STRUCTURE_VERIFIED' && <p className="mb-3 text-sm font-medium text-[var(--accent)]">Postcode structure verified with NIPOST. Building verification pending live access.</p>}
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{source}</p>
             <p className="mt-1 font-semibold">{result.standardizedAddress}</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
               {result.digitalPostcode ? `Building ${result.digitalPostcode} · ` : ''}Service district {result.postcode}
             </p>
+            {result.source === 'NIPOST_STRUCTURE_VERIFIED' && !result.coordinates && <p className="mt-2 text-sm">Use your device location at the pickup spot to continue the pilot booking.</p>}
             {result.coordinateOrigin === 'RESIDENT_DEVICE_REVERSE_MATCH' && (
               <p className="mt-2 text-sm text-[var(--muted)]">NIPOST matched your device location to this building code.</p>
             )}
@@ -117,7 +119,8 @@ export function AddressResolver({ onResolved }: AddressResolverProps) {
           {confirmed ? (
             <p role="status" className="text-sm font-semibold text-[var(--accent)]">Pickup location confirmed</p>
           ) : (
-            <Button type="button" size="sm" onClick={() => {
+            <Button type="button" size="sm" disabled={!result.coordinates}
+            onClick={() => {
               setConfirmed(true);
               onResolved(result);
             }}>Use this location</Button>

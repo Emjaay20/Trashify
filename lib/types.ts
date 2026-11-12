@@ -19,9 +19,10 @@ export interface ResolveGridAddressResult {
   state: string;
   landmarkMatch?: string;
   confidence: number;       // 0.0 - 1.0 (e.g. 0.87)
-  source: 'NIPOST_OFFICIAL_API' | 'NIPOST_SANDBOX' | 'RESOLVEGRID_FIXTURE' | 'LANDMARK_INDEX';
+  source: 'NIPOST_STRUCTURE_VERIFIED' | 'NIPOST_OFFICIAL_API' | 'NIPOST_SANDBOX' | 'RESOLVEGRID_FIXTURE' | 'LANDMARK_INDEX';
   needsConfirmation: boolean;
-  coordinateOrigin?: 'NIPOST_GEOMETRY' | 'RESIDENT_DEVICE_REVERSE_MATCH';
+  coordinateOrigin?: 'NIPOST_GEOMETRY' | 'RESIDENT_DEVICE_REVERSE_MATCH' | 'PILOT_RESIDENT_PIN';
+  structureCheckedAt?: string;
   coordinates?: {
     lat: number;
     lng: number;

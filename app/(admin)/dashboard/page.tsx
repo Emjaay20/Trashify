@@ -19,6 +19,18 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
   const [closing, setClosing] = useState('');
+  const [summary, setSummary] = useState<{ text: string; label: string; days: number } | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  async function summarize() {
+    setSummarizing(true);
+    try {
+      const response = await fetch('/api/ai/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setSummary({ ...result, days });
+    } catch { setError('Could not generate the summary. The dashboard figures are available below.'); }
+    finally { setSummarizing(false); }
+  }
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -26,6 +38,7 @@ export default function DashboardPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       setData(data);
+      setSummary(null);
       setError('');
     } catch (error) {
       if (!signal?.aborted) setError(error instanceof Error ? error.message : 'Could not load service metrics.');
@@ -78,6 +91,14 @@ export default function DashboardPage() {
       {!data && !error && <p role="status" className="text-sm text-[var(--muted)]">Loading service data…</p>}
       {data && (
         <>
+          <section className="space-y-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">Period summary</h2>
+              <button type="button" disabled={summarizing} onClick={() => void summarize()} className="rounded-md border border-[var(--line-2)] px-3 py-2 text-sm font-semibold text-[var(--accent)]">{summarizing ? 'Summarizing…' : 'Summarize period'}</button>
+            </div>
+            {summary?.days === days && <><p className="text-xs font-semibold text-[var(--accent)]">{summary.label}</p><p role="status" className="text-sm leading-relaxed">{summary.text}</p></>}
+            <p className="text-xs text-[var(--muted)]">Summaries use district totals. Review the figures below when planning follow-up.</p>
+          </section>
           <section aria-labelledby="reliability">
             <h2 id="reliability" className="mb-3 text-xl font-semibold">Pickup reliability</h2>
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[var(--line)] bg-[var(--line)] md:grid-cols-4">

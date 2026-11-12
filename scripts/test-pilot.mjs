@@ -14,6 +14,20 @@ const dbPath = join(directory, 'test.sqlite');
 const serviceToken = 'local-test-only';
 const resolver = createServer((request, response) => {
   const url = new URL(request.url, 'http://localhost');
+  if (url.pathname === '/v1/nipost/structure' && request.headers['x-resolvegrid-service-token'] === serviceToken) {
+    let raw = '';
+    request.on('data', (chunk) => raw += chunk);
+    request.on('end', () => {
+      const code = JSON.parse(raw).code?.replace(/[ -]/g, '').toUpperCase();
+      if (code !== 'FC01A01KP27') { response.writeHead(422).end('{}'); return; }
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ data: {
+        postcode: 'FC-01-A01-KP-27', district: 'FC-01-A01', source: 'NIPOST_STRUCTURE_VERIFIED',
+        building_verified: false, state: 'FCT', lga: 'Abaji', area: 'KP', checked_at: new Date().toISOString(),
+      } }));
+    });
+    return;
+  }
   if (url.pathname !== '/v1/nipost/lookup' || url.searchParams.get('strict') !== '1' ||
       request.headers['x-resolvegrid-service-token'] !== serviceToken) {
     response.writeHead(401).end();
@@ -41,7 +55,7 @@ await new Promise((resolve) => portReservation.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 const environment = {
   ...process.env,
-  TRASHIFY_DB_PATH: dbPath, TRASHIFY_ORIGIN: origin, TRASHIFY_ALLOW_SAMPLE_ADDRESSES: '0',
+  TRASHIFY_DB_PATH: dbPath, TRASHIFY_ORIGIN: origin, TRASHIFY_ALLOW_SAMPLE_ADDRESSES: '0', TRASHIFY_PILOT_STRUCTURE_MODE: '0', OPENAI_API_KEY: '',
   RESOLVEGRID_SERVICE_TOKEN: serviceToken, RESOLVEGRID_NIPOST_API_KEY: '',
   RESOLVEGRID_API_URL: `http://127.0.0.1:${resolver.address().port}/v1/resolve`,
 };
@@ -240,6 +254,27 @@ try {
   });
   assert.equal(exported.status, 200);
   assert.equal((await exported.text()).trim().split('\n').length, 1);
+  const aiReport = await neighbour('/api/ai/report', { method: 'POST', body: { text: 'Ada at 12 Sample Street says rubbish is blocking the gutter. Call 08012345678' } });
+  assert.equal(aiReport.data.kind, 'drainage');
+  assert.equal(aiReport.data.mode, 'rules');
+  assert.equal(JSON.stringify(aiReport.data).includes('08012345678'), false);
+  assert.equal((await neighbour('/api/ai/summary', { method: 'POST', body: {} })).status, 403);
+  const summary = await municipal('/api/ai/summary', { method: 'POST', body: { days: 30 } });
+  assert.equal(summary.data.mode, 'rules');
+  assert.ok(summary.data.text.includes('FC-02-A09'));
+  assert.equal(summary.data.text.includes('Test building'), false);
+  await stop();
+  environment.TRASHIFY_PILOT_STRUCTURE_MODE = '1';
+  await start();
+  const pilot = await neighbour('/api/resolve', { method: 'POST', body: { query: 'FC-01-A01-KP-27', position: { lat: 9, lng: 7 } } });
+  assert.equal(pilot.data.source, 'NIPOST_STRUCTURE_VERIFIED');
+  assert.equal(pilot.data.coordinateOrigin, 'PILOT_RESIDENT_PIN');
+  assert.equal((await neighbour('/api/resolve', { method: 'POST', body: { query: 'FC-01-A01-XX-27' } })).status, 422);
+  const pilotBooking = await neighbour('/api/jobs', { method: 'POST', headers: { 'Idempotency-Key': randomUUID() }, body: {
+    ...booking, rawAddressInput: 'FC-01-A01-KP-27', confirmedPostcode: 'FC-01-A01-KP-27', position: { lat: 9, lng: 7 },
+  } });
+  assert.equal(pilotBooking.status, 201);
+  assert.equal(pilotBooking.data.job.postcodeRecord.source, 'NIPOST_STRUCTURE_VERIFIED');
   console.log('Pilot checks passed: demo and role boundaries, restart persistence, postcode, duplicate booking, PIN/GPS, reports, metrics, login and logout.');
 } finally {
   await stop();

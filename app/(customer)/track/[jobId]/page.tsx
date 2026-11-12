@@ -79,6 +79,7 @@ function CustomerTrackContent() {
         {stale && <p role="status" className="mt-3 text-sm text-[var(--muted)]">Couldn’t refresh. Showing the last known status.</p>}
       </header>
 
+      {job.postcodeRecord.source === 'NIPOST_STRUCTURE_VERIFIED' && <p className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-4 text-sm">Postcode structure verified with NIPOST. Building verification pending live access. The pickup point is supplied for the pilot.</p>}
       <dl className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div>
           <dt className="text-sm font-medium text-[var(--muted)]">Pickup address</dt>

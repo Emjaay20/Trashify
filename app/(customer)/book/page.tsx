@@ -47,7 +47,7 @@ export default function CustomerBookPage() {
         customerPhone,
         rawAddressInput: resolvedRecord.rawInput,
         confirmedPostcode: resolvedRecord.digitalPostcode ?? resolvedRecord.postcode,
-        position: resolvedRecord.coordinateOrigin === 'RESIDENT_DEVICE_REVERSE_MATCH' && resolvedRecord.coordinates
+        position: ['RESIDENT_DEVICE_REVERSE_MATCH', 'PILOT_RESIDENT_PIN'].includes(resolvedRecord.coordinateOrigin ?? '') && resolvedRecord.coordinates
           ? { lat: resolvedRecord.coordinates.lat, lng: resolvedRecord.coordinates.lng } : undefined,
         wasteCategories: categories,
         estimatedBags: bags,

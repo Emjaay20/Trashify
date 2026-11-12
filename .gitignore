@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Persistent pilot data
 /.data/
+
+# Generated demo videos and private submission captures
+/output/
